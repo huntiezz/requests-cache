@@ -34,7 +34,7 @@ repos:
       - id: xenon
         args: [--max-average=A, --max-modules=B, --max-absolute=C]
   - repo: https://github.com/crate-ci/typos
-    rev: v1.47.2
+    rev: v1.48.0
     hooks:
       - id: typos
   - repo: https://github.com/pre-commit/mirrors-prettier
