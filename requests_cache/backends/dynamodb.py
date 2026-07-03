@@ -145,12 +145,18 @@ class DynamoDbDict(BaseStorage):
 
     def __iter__(self):
         # Alias 'key' attribute since it's a reserved keyword
-        results = self._table.scan(
-            ProjectionExpression='#k',
-            ExpressionAttributeNames={'#k': 'key'},
-        )
-        for item in results['Items']:
-            yield item['key']
+        scan_kwargs: dict = {
+            'ProjectionExpression': '#k',
+            'ExpressionAttributeNames': {'#k': 'key'},
+        }
+        while True:
+            results = self._table.scan(**scan_kwargs)
+            for item in results['Items']:
+                yield item['key']
+            last_key = results.get('LastEvaluatedKey')
+            if not last_key:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_key
 
     def __len__(self):
         """Get the number of items in the table.
@@ -174,7 +180,13 @@ class DynamoDbDict(BaseStorage):
         serialized_value = value.value if isinstance(value, Binary) else value
         return super().deserialize(key, serialized_value)
 
-    # TODO: Support pagination
     def values(self):
-        for item in self._table.scan()['Items']:
-            yield self.deserialize(item['key'], item['value'])
+        scan_kwargs: dict = {}
+        while True:
+            results = self._table.scan(**scan_kwargs)
+            for item in results['Items']:
+                yield self.deserialize(item['key'], item['value'])
+            last_key = results.get('LastEvaluatedKey')
+            if not last_key:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_key

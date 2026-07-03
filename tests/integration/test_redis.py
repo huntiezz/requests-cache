@@ -64,3 +64,12 @@ class TestRedisCache(BaseCacheTest):
         session.get(httpbin('get'))
         mock_setex.assert_not_called()
         mock_set.assert_called()
+
+    @patch.object(StrictRedis, 'setex')
+    @patch.object(StrictRedis, 'set')
+    def test_ttl__no_expiry(self, mock_set, mock_setex):
+        """Items with no expiry should use SET (no TTL) even when ttl_offset is configured"""
+        session = self.init_session(ttl_offset=500)
+        session.get(httpbin('get'))
+        mock_setex.assert_not_called()
+        mock_set.assert_called()
