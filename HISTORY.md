@@ -4,6 +4,7 @@
 * Fix bug with SQLite `vacuum()` not freeing disc space
 * Fix error when receiving an empty `Expires` header value
 * Fix DynamoDB item enumeration when the table exceeds 1MB
+* Fix Redis `ttl_offset` for items that should have no expiry
 
 ## 1.3.2 (2026-05-10)
 * Update `CachedResponse` for compatibility with requests 2.34

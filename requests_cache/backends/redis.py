@@ -92,11 +92,12 @@ class RedisDict(BaseStorage):
     def __setitem__(self, key, item):
         """Save an item to the cache, optionally with TTL"""
         expires_delta = getattr(item, 'expires_delta', None)
-        ttl_seconds = (expires_delta or 0) + self.ttl_offset
-        if self.ttl and ttl_seconds > 0:
-            self.connection.setex(self._bkey(key), ttl_seconds, self.serialize(item))
-        else:
-            self.connection.set(self._bkey(key), self.serialize(item))
+        if expires_delta is not None:
+            ttl_seconds = expires_delta + self.ttl_offset
+            if self.ttl and ttl_seconds > 0:
+                self.connection.setex(self._bkey(key), ttl_seconds, self.serialize(item))
+                return
+        self.connection.set(self._bkey(key), self.serialize(item))
 
     def __delitem__(self, key):
         if not self.connection.delete(self._bkey(key)):
