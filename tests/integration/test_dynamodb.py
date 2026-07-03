@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -8,6 +8,7 @@ from requests_cache.backends import DynamoDbCache, DynamoDbDict
 from tests.conftest import CACHE_NAME, fail_if_no_connection
 from tests.integration.base_cache_test import BaseCacheTest
 from tests.integration.base_storage_test import BaseStorageTest
+
 
 AWS_OPTIONS = {
     'endpoint_url': 'http://localhost:8000',
@@ -92,6 +93,49 @@ class TestDynamoDbDict(BaseStorageTest):
             assert isinstance(ttl_value, Decimal)
         else:
             assert ttl_value is None
+
+    def test_iter_empty_table(self):
+        cache = self.init_cache()
+        cache._table.scan = MagicMock(return_value=_scan_page([]))
+        assert list(cache) == []
+
+    @pytest.mark.parametrize('use_values', [False, True], ids=['__iter__', 'values'])
+    def test_pagination_all_pages_returned(self, use_values):
+        cache = self.init_cache()
+        cache.deserialize = lambda key, value: value
+        cache._table.scan = MagicMock(
+            side_effect=[
+                _scan_page(['a', 'b'], last_key='b'),
+                _scan_page(['c', 'd'], last_key='d'),
+                _scan_page(['e']),
+            ]
+        )
+
+        result = list(cache.values() if use_values else cache)
+
+        assert result == ['a', 'b', 'c', 'd', 'e']
+        assert cache._table.scan.call_count == 3
+
+    def test_pagination_exclusive_start_key_threaded(self):
+        cache = self.init_cache()
+        cache._table.scan = MagicMock(
+            side_effect=[
+                _scan_page(['a'], last_key='a'),
+                _scan_page(['b']),
+            ]
+        )
+
+        list(cache)
+
+        assert 'ExclusiveStartKey' not in cache._table.scan.call_args_list[0].kwargs
+        assert cache._table.scan.call_args_list[1].kwargs['ExclusiveStartKey'] == {'key': 'a'}
+
+
+def _scan_page(keys: list, last_key=None) -> dict:
+    page: dict = {'Items': [{'key': k, 'value': k} for k in keys]}
+    if last_key is not None:
+        page['LastEvaluatedKey'] = {'key': last_key}
+    return page
 
 
 class TestDynamoDbCache(BaseCacheTest):
