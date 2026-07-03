@@ -1,5 +1,9 @@
 # History
 
+## Unreleased
+* Fix intermittent data corruption (and resulting `EOFError`) in the SQLite backend under
+  concurrent thread access
+
 ## 1.3.3 (2026-07-03)
 * Fix SQLite `vacuum()` not freeing disk space
 * Fix DynamoDB item enumeration when the table exceeds 1MB

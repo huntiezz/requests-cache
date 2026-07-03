@@ -246,7 +246,14 @@ class SQLiteDict(BaseStorage):
 
     @contextmanager
     def connection(self, commit=False) -> Iterator[sqlite3.Connection]:
-        """Get a thread-local database connection"""
+        """Get a synchronized database connection.
+
+        A single connection object is shared across all threads for this cache (see
+        ``check_same_thread=False`` above), so all access to it -- reads included -- must be
+        serialized under ``self._lock`` for the full duration it's in use, not just while it's
+        being lazily opened. Otherwise a read could run concurrently with an in-progress write
+        transaction on the same connection object, corrupting results.
+        """
         with self._lock:
             if not self._connection:
                 logger.debug(f'Opening connection to {self.db_path}:{self.table_name}')
@@ -264,13 +271,13 @@ class SQLiteDict(BaseStorage):
                 if self.wal and not self.fast_save:
                     self._connection.execute('PRAGMA synchronous=NORMAL')
 
-        # Multithreaded write operations must be run in serial
-        if commit and not self._active_transaction:
-            with self._acquire_sqlite_lock():
+            # Multithreaded write operations must be run in serial
+            if commit and not self._active_transaction:
+                with self._acquire_sqlite_lock():
+                    yield self._connection
+            # Reads are also serialized (behind the same lock), since the connection is shared
+            else:
                 yield self._connection
-        # Read operations can be run in parallel (no lock or COMMIT)
-        else:
-            yield self._connection
 
     def close(self):
         """Close any active connections"""
