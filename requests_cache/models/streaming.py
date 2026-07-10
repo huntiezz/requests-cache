@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from requests import Response
 
@@ -11,14 +11,14 @@ from .response import OriginalResponse
 
 if TYPE_CHECKING:
     from ..policy.actions import CacheActions
-    from ..session import CachedSession
+    from ..session import CacheMixin
 
 
 class DeferredCacheResponse(OriginalResponse):
     """Return a live streamed response immediately and write to the cache after the body is read."""
 
-    _deferred_session: Optional['CachedSession'] = None
-    _deferred_actions: Optional['CacheActions'] = None
+    _deferred_session: CacheMixin | None = None
+    _deferred_actions: CacheActions | None = None
     _cache_written: bool = False
     _writing_cache: bool = False
     _accumulated_body: bytearray
@@ -26,18 +26,19 @@ class DeferredCacheResponse(OriginalResponse):
     @classmethod
     def wrap(
         cls,
-        session: 'CachedSession',
+        session: CacheMixin,
         response: Response,
-        actions: 'CacheActions',
-    ) -> 'DeferredCacheResponse':
-        wrapped = OriginalResponse.wrap_response(response, actions)
-        wrapped.__class__ = cls
-        wrapped._deferred_session = session
-        wrapped._deferred_actions = actions
-        wrapped._cache_written = False
-        wrapped._writing_cache = False
-        wrapped._accumulated_body = bytearray()
-        return wrapped  # type: ignore[return-value]
+        actions: CacheActions,
+    ) -> DeferredCacheResponse:
+        OriginalResponse.wrap_response(response, actions)
+        response.__class__ = cls
+        deferred = cast(DeferredCacheResponse, response)
+        deferred._deferred_session = session
+        deferred._deferred_actions = actions
+        deferred._cache_written = False
+        deferred._writing_cache = False
+        deferred._accumulated_body = bytearray()
+        return deferred
 
     def _record_chunk(self, chunk: bytes | str) -> None:
         if not chunk:
@@ -45,11 +46,20 @@ class DeferredCacheResponse(OriginalResponse):
         if isinstance(chunk, bytes):
             self._accumulated_body.extend(chunk)
         else:
-            self._accumulated_body.extend(chunk.encode(self.encoding or 'utf-8'))
+            encoding = self.encoding if isinstance(self.encoding, str) else 'utf-8'
+            self._accumulated_body.extend(chunk.encode(encoding))
+
+    def _is_content_consumed(self) -> bool:
+        return bool(getattr(self, '_content_consumed', False))
+
+    def _body_is_pending(self) -> bool:
+        return cast(Any, self._content) is False
 
     def _finalize_body(self) -> None:
         """Make the full response body available for cache serialization."""
-        if self._content is not False or not self._content_consumed:
+        if not self._body_is_pending():
+            return
+        if not self._is_content_consumed():
             return
         if not self._accumulated_body:
             return
@@ -66,10 +76,10 @@ class DeferredCacheResponse(OriginalResponse):
             or self._deferred_actions is None
         ):
             return
-        if not self._content_consumed:
+        if not self._is_content_consumed():
             return
         self._finalize_body()
-        if self._content is False:
+        if self._body_is_pending():
             return
         self._writing_cache = True
         try:
@@ -84,9 +94,9 @@ class DeferredCacheResponse(OriginalResponse):
 
     def iter_content(
         self,
-        chunk_size: int = 1,
+        chunk_size: int | None = 1,
         decode_unicode: bool = False,
-    ) -> Iterator[bytes | str]:
+    ) -> Iterator[Any]:
         for chunk in Response.iter_content(
             self,
             chunk_size=chunk_size,
@@ -99,10 +109,10 @@ class DeferredCacheResponse(OriginalResponse):
 
     def iter_lines(
         self,
-        chunk_size: int = 512,
+        chunk_size: int | None = 512,
         decode_unicode: bool = False,
-        delimiter: Optional[bytes] = None,
-    ) -> Iterator[bytes | str]:
+        delimiter: str | bytes | None = None,
+    ) -> Iterator[Any]:
         for line in Response.iter_lines(
             self,
             chunk_size=chunk_size,
@@ -116,16 +126,16 @@ class DeferredCacheResponse(OriginalResponse):
     @property
     def content(self) -> bytes:
         if self._writing_cache:
-            return self._content  # type: ignore[return-value]
-        if self._content is False:
-            data = Response.content.fget(self)  # type: ignore[attr-defined]
-            if self._content is False and data:
+            return cast(bytes, self._content)
+        if self._body_is_pending():
+            data = cast(bytes, Response.content.fget(self))  # type: ignore[attr-defined]
+            if data:
                 self._accumulated_body.extend(data)
             self._finalize_body()
             self._maybe_write_cache()
-            return self._content  # type: ignore[return-value]
-        self._maybe_write_cache()
-        return self._content  # type: ignore[return-value]
+        else:
+            self._maybe_write_cache()
+        return cast(bytes, self._content)
 
     def close(self) -> None:
         try:
