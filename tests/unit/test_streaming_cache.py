@@ -1,6 +1,5 @@
 from io import BytesIO
 
-import pytest
 from urllib3.response import HTTPResponse
 
 from tests.conftest import MOCKED_URL
@@ -63,7 +62,6 @@ def test_stream_partial_read_skips_cache_write(mock_session):
     )
 
     save_calls = []
-    original_save = mock_session.cache.save_response
     mock_session.cache.save_response = lambda *args, **kwargs: save_calls.append(1)
 
     response = mock_session.get(url, stream=True)
