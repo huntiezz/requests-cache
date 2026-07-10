@@ -11,7 +11,7 @@ from requests.hooks import dispatch_hook
 
 from ._utils import get_valid_kwargs, patch_form_boundary
 from .backends import BackendSpecifier, StrOrPath, init_backend
-from .models import AnyResponse, CachedResponse, OriginalResponse
+from .models import AnyResponse, CachedResponse, DeferredCacheResponse, OriginalResponse
 from .policy import (
     DEFAULT_CACHE_NAME,
     DEFAULT_IGNORED_PARAMS,
@@ -279,7 +279,9 @@ class CacheMixin(MIXIN_BASE):
         response = super().send(request, **kwargs)
         actions.update_from_response(response)
 
-        if not actions.skip_write:
+        if not actions.skip_write and kwargs.get('stream'):
+            return DeferredCacheResponse.wrap(self, response, actions)
+        elif not actions.skip_write:
             self.cache.save_response(response, actions.cache_key, actions.expires)
         elif cached_response is not None and response.status_code == 304:
             cached_response = actions.update_revalidated_response(response, cached_response)

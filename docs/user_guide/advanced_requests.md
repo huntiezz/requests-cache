@@ -37,9 +37,14 @@ It can be used, for example, for request throttling:
 
 ## Streaming Requests
 If you use [streaming requests](https://requests.readthedocs.io/en/latest/user/advanced/#id9), you
-can use the same code to iterate over both cached and non-cached requests. Cached response content
-will have already been read (i.e., consumed), but will be available for re-reading so it behaves like
-the original streamed response:
+can use the same code to iterate over both cached and non-cached requests. On a cache miss,
+`CachedSession` returns the live response right away and waits until the stream finishes before
+writing to the cache. That means the first chunk can arrive before the full body has been read or
+stored.
+
+Cached response content will have already been read (i.e., consumed), but will be available for
+re-reading so it behaves like the original streamed response. If a stream is only partially read,
+the response is not cached.
 
 :::{dropdown} Example
 :animate: fade-in-slide-down
